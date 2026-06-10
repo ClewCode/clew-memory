@@ -12,7 +12,7 @@ export function registerForgetTool(server: McpServer) {
     'clew_forget',
     {
       description:
-        'Delete a memory by id, or search by query and delete all matches when confirm is true.',
+        'Permanently delete memory for privacy/security reasons by id, or by query with confirm true.',
       inputSchema,
     },
     async (args) => {

@@ -37,8 +37,11 @@ export async function hybridSearch(input: RecallInput): Promise<RecallResult[]> 
       agent: memories.agent,
       created_at: memories.created_at,
       score: sql<number>`
-        0.7 * COALESCE(vector_scores.score_vector, 0)
-        + 0.3 * COALESCE(fts_scores.score_fts, 0)
+        0.55 * COALESCE(vector_scores.score_vector, 0)
+        + 0.25 * COALESCE(fts_scores.score_fts, 0)
+        + 0.10 * ${memories.importance}
+        + 0.05 * (1.0 / (1.0 + (${Date.now()} - ${memories.created_at}) / 86400000.0 * COALESCE(${memories.decay_rate}, 0.01)))
+        + 0.05 * (1.0 / (1.0 + (${memories.access_count} / 10.0)))
       `,
     })
     .from(memories)
@@ -58,13 +61,14 @@ export async function hybridSearch(input: RecallInput): Promise<RecallResult[]> 
         input.agent ? eq(memories.agent, input.agent) : undefined,
         input.project ? eq(memories.project, input.project) : undefined,
         tagFilter,
+        isNull(memories.superseded_by),
         or(isNull(memories.decay_at), lt(memories.decay_at, Date.now())),
       ),
     )
     .orderBy(sql`score DESC`)
     .limit(limit);
 
-  return rows.map((row) => ({
+  const results = rows.map((row) => ({
     id: row.id,
     content: row.content,
     score: Number(row.score ?? 0),
@@ -72,6 +76,19 @@ export async function hybridSearch(input: RecallInput): Promise<RecallResult[]> 
     agent: row.agent,
     created_at: row.created_at,
   }));
+
+  if (results.length > 0) {
+    const resultIds = results.map((r) => r.id);
+    await db
+      .update(memories)
+      .set({
+        access_count: sql`access_count + 1`,
+        last_accessed_at: Date.now(),
+      })
+      .where(inArray(memories.id, resultIds));
+  }
+
+  return results;
 }
 
 export function toFtsQuery(query: string) {

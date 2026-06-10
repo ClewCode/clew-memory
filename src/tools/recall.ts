@@ -1,7 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as z from 'zod/v4';
 
-import { recall as searchMemories } from '../memory/store';
+import { detectClient } from '../client';
+import { addTimelineEvent, recordMemoryTrace, recall as searchMemories } from '../memory/store';
 
 const inputSchema = z.object({
   query: z.string().min(1),
@@ -21,6 +22,29 @@ export function registerRecallTool(server: McpServer) {
     async (args) => {
       try {
         const memories = await searchMemories(args);
+        await recordMemoryTrace({
+          toolName: 'clew_recall',
+          query: args.query,
+          client: detectClient(),
+          project: args.project ?? null,
+          resultCount: memories.length,
+          selectedIds: memories.map((memory) => memory.id),
+        });
+
+        if (memories.length > 0) {
+          await addTimelineEvent({
+            eventType: 'memory_recalled',
+            title: 'Memories recalled',
+            body: `Recalled ${memories.length} memories.`,
+            entityType: 'memory',
+            entityId: memories[0]?.id ?? null,
+            tags: args.tags,
+            metadata: {
+              result_count: memories.length,
+            },
+          });
+        }
+
         return textResult({
           memories: memories.map((memory) => ({
             id: memory.id,
@@ -32,6 +56,14 @@ export function registerRecallTool(server: McpServer) {
           })),
         });
       } catch (error) {
+        await recordMemoryTrace({
+          toolName: 'clew_recall',
+          query: args.query,
+          client: detectClient(),
+          project: args.project ?? null,
+          resultCount: 0,
+          selectedIds: [],
+        });
         return errorResult(error);
       }
     },

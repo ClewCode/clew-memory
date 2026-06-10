@@ -1,7 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as z from 'zod/v4';
 
-import { recall as searchMemories } from '../memory/store';
+import { detectClient } from '../client';
+import { addTimelineEvent, recordMemoryTrace, recall as searchMemories } from '../memory/store';
 
 const inputSchema = z.object({
   context: z.string().min(1),
@@ -22,11 +23,40 @@ export function registerReflectTool(server: McpServer) {
           query: args.context,
           limit: args.limit ?? 3,
         });
+        await recordMemoryTrace({
+          toolName: 'clew_reflect',
+          query: args.context,
+          client: detectClient(),
+          project: null,
+          resultCount: memories.length,
+          selectedIds: memories.map((memory) => memory.id),
+        });
+
+        if (memories.length > 0) {
+          await addTimelineEvent({
+            eventType: 'memory_recalled',
+            title: 'Reflection context generated',
+            body: `Generated reflection context from ${memories.length} memories.`,
+            entityType: 'memory',
+            entityId: memories[0]?.id ?? null,
+            metadata: {
+              result_count: memories.length,
+            },
+          });
+        }
 
         return textResult({
           injection: formatInjection(memories),
         });
       } catch (error) {
+        await recordMemoryTrace({
+          toolName: 'clew_reflect',
+          query: args.context,
+          client: detectClient(),
+          project: null,
+          resultCount: 0,
+          selectedIds: [],
+        });
         return errorResult(error);
       }
     },
