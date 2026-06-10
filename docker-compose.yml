@@ -1,0 +1,16 @@
+services:
+  clew-memory:
+    build:
+      context: .
+    image: clew-memory:latest
+    environment:
+      CLEW_MEMORY_DB: /data/memory.db
+      CLEW_MEMORY_HTTP: "1"
+      CLEW_MEMORY_HTTP_PORT: "7337"
+    ports:
+      - "7337:7337"
+    volumes:
+      - clew-memory-data:/data
+
+volumes:
+  clew-memory-data:
