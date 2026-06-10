@@ -52,6 +52,68 @@ bun run start
 
 The package publishes a Node-compatible build in `dist/index.js`. Runtime uses Node `>=24` because the native `better-sqlite3` and `sqlite-vec` dependencies load through Node bindings.
 
+## CLI commands
+
+```bash
+clew-memory init                  # Initialize DB, show client context
+clew-memory remember <content>    # Store a memory
+clew-memory recall <query>        # Recall memories
+clew-memory recall <query> --debug-score  # Show score breakdown
+clew-memory doctor                # Check DB, FTS, sqlite-vec, embedding health
+clew-memory trace                 # Show memory trace entries
+clew-memory timeline [recent|search|add|clear]
+clew-memory feedback [list|add|important|wrong]
+clew-memory supersede <id>        # Mark a memory as superseded
+```
+
+### `clew-memory doctor`
+
+```json
+{
+  "healthy": true,
+  "checks": {
+    "databasePath": "/project/.clew/memory.db",
+    "client": "claude-code",
+    "migrations": [{"name": "0000_init", "applied_at": 1700000000000}],
+    "fts_tables": ["memories_fts", "memory_timeline_fts"],
+    "sqlite_vec": { "loaded": true, "ok": true },
+    "embedding": { "model": "Xenova/all-MiniLM-L6-v2", "dimensions": 384, "ok": true },
+    "mcp": { "memories": 15, "status": "connected" }
+  }
+}
+```
+
+### `clew-memory recall --debug-score`
+
+```json
+{
+  "memories": [{
+    "id": "01J...",
+    "content": "...",
+    "score": 0.82,
+    "score_vector": 0.91,
+    "score_fts": 0.75,
+    "score_importance": 0.5,
+    "score_recency": 0.98,
+    "score_access": 0.67
+  }]
+}
+```
+
+## Privacy redaction
+
+All content stored via `clew_remember` is automatically sanitized. The following patterns are replaced with `[REDACTED]`:
+
+- API keys (`sk-`, `pk-`, `rk-` prefixes)
+- GitHub tokens (`ghp_`, `gho_`, `ghu_`, `gpr_`)
+- Slack tokens (`xoxb-`, `xoxp-`, `xoxr-`, `xoxs-`)
+- SSH private keys (`-----BEGIN * PRIVATE KEY-----`)
+- Certificates (`-----BEGIN CERTIFICATE-----`)
+- Key-value assignments (`API_KEY=...`, `secret: ...`)
+- Long base64 strings (40+ chars)
+
+Content is also truncated at 32KB by default. Use `clew_forget` when you need permanent deletion.
+
 ## npm package publishing
 
 The package is configured for public npm publishing. Before publishing, run:
