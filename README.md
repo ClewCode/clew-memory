@@ -32,10 +32,17 @@ Install globally with Bun:
 bun add -g clew-memory
 ```
 
+Install globally with npm:
+
+```bash
+npm install -g clew-memory
+```
+
 Or run directly without installing:
 
 ```bash
 bunx clew-memory
+npx clew-memory
 ```
 
 If you are developing the package locally:
@@ -45,6 +52,26 @@ bun install
 bun run build
 bun run start
 ```
+
+The package publishes a Node-compatible build in `dist/index.js`. Runtime uses Node `>=24` because the native `better-sqlite3` and `sqlite-vec` dependencies load through Node bindings.
+
+## npm package publishing
+
+The package is configured for public npm publishing. Before publishing, run:
+
+```bash
+bun run lint
+bunx tsc --noEmit
+npm pack --dry-run
+```
+
+Publish a new version with:
+
+```bash
+npm publish --access public
+```
+
+Do not publish unless you intend to release the current version to the public npm registry.
 
 ## Docker
 

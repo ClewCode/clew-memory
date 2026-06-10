@@ -6,10 +6,22 @@
   "bin": {
     "clew-memory": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "bun run --hot src/index.ts",
-    "start": "bun run src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "node dist/index.js",
+    "build": "bun build src/index.ts --target node --external better-sqlite3 --external sqlite-vec --external @xenova/transformers --external onnxruntime-node --outdir dist",
+    "prepack": "bun run build",
+    "prepublishOnly": "bun run lint && bunx tsc --noEmit",
     "migrate": "drizzle-kit migrate",
     "studio": "drizzle-kit studio",
     "lint": "biome check .",
