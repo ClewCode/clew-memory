@@ -121,53 +121,84 @@ The Docker image uses Bun to build the project, then runs a Node-compatible bund
 
 ## Usage with Claude Code
 
-Add the server to Claude Code's MCP config:
+### Project memory (default)
+
+Each project gets its own `PROJECT_ROOT/.clew/memory.db`. Claude Code sets `CLAUDE_PROJECT_DIR` automatically.
+
+Add to `.mcp.json` in your project root:
 
 ```json
 {
   "mcpServers": {
     "clew-memory": {
       "command": "bunx",
-      "args": ["clew-memory"],
-      "env": {
-        "CLEW_MEMORY_DB": "/Users/YOU/.clew-memory/memory.db"
-      }
+      "args": ["clew-memory"]
     }
   }
 }
 ```
 
-Or use a local checkout:
+Or add it with the CLI:
 
-```json
-{
-  "mcpServers": {
-    "clew-memory": {
-      "command": "bun",
-      "args": ["run", "src/index.ts"],
-      "cwd": "/path/to/clew-memory"
-    }
-  }
-}
+```bash
+claude mcp add clew-memory -- bunx clew-memory
 ```
 
-## Usage with Clew
+### Global memory (opt-in)
 
-Add this to your `.mcp.json` or equivalent Clew MCP configuration:
+To share memory across all projects:
+
+```bash
+claude mcp add clew-memory -- bunx clew-memory
+# Then edit .mcp.json to add:
+#   "env": { "CLEW_MEMORY_SCOPE": "global" }
+```
+
+### Typical Claude Code workflow
+
+```bash
+# In your project, the agent can:
+# Remember: "clew_remember" tool stores context
+# Recall: "clew_recall" finds relevant past context
+# Feedback: "clew_feedback_add" adjusts importance/confidence
+# Reflect: "clew_reflect_session" produces session summary
+```
+
+## Usage with ClewCode
+
+### Project memory (default)
+
+ClewCode sets `CLEW_PROJECT_DIR` automatically. Memory is stored at `$CLEW_PROJECT_DIR/.clew/memory.db`.
+
+Add this to your ClewCode memory config (`.mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "clew-memory": {
       "command": "bunx",
-      "args": ["clew-memory"],
-      "env": {
-        "CLEW_MEMORY_DB": "/Users/YOU/.clew-memory/memory.db"
-      }
+      "args": ["clew-memory"]
     }
   }
 }
 ```
+
+### `/memory` command mapping
+
+ClewCode's `/memory` command maps to clew-memory tools:
+
+| Command             | clew-memory tool     |
+|---------------------|----------------------|
+| `/memory save`      | `clew_remember`      |
+| `/memory search`    | `clew_recall`        |
+| `/memory feedback`  | `clew_feedback_add`  |
+| `/memory timeline`  | `clew_timeline_recent` |
+| `/memory handoff`   | `clew_handoff`       |
+| `/memory reflect`   | `clew_reflect_session` |
+
+### Shared .clew/memory.db behavior
+
+When `CLEW_MEMORY_SCOPE` is not set, clew-memory uses the project root's `.clew/memory.db`. Both Claude Code (`CLAUDE_PROJECT_DIR`) and ClewCode (`CLEW_PROJECT_DIR`) resolve to the same project directory, so memory is shared between both clients automatically.
 
 ## Usage with Cursor
 

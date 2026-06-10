@@ -13,6 +13,7 @@ import {
   workingMemory,
 } from '../db/schema';
 import { embedText } from '../embeddings/embedder';
+import { sanitizeContent } from '../privacy';
 import { summarizeContent } from './summarize';
 
 export type RememberInput = {
@@ -160,8 +161,9 @@ export type PublicTimelineEvent = {
 
 export async function remember(input: RememberInput) {
   const now = Date.now();
-  const embedding = await embedText(input.content);
-  const summary = summarizeContent(input.content);
+  const safeContent = sanitizeContent(input.content);
+  const embedding = await embedText(safeContent);
+  const summary = summarizeContent(safeContent);
   const tags = normalizeTags(input.tags);
   const id = ulid();
   const client = input.client ?? detectClient();
@@ -172,7 +174,7 @@ export async function remember(input: RememberInput) {
     .insert(memories)
     .values({
       id,
-      content: input.content,
+      content: safeContent,
       summary,
       embedding: Buffer.from(embedding.buffer),
       tags,

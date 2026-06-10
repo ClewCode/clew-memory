@@ -8,7 +8,9 @@ import { getDatabasePath } from '../client';
 import * as schema from './schema';
 
 export function createDatabaseClient(path = getDatabasePath()) {
-  mkdirSync(dirname(path), { recursive: true });
+  if (path !== ':memory:') {
+    mkdirSync(dirname(path), { recursive: true });
+  }
 
   const sqlite = new Database(path);
   sqlite.pragma('foreign_keys = ON');

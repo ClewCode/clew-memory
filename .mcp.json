@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "clew-memory": {
+      "command": "bunx",
+      "args": ["clew-memory"],
+      "env": {
+        "CLEW_MEMORY_SCOPE": "project"
+      }
+    }
+  }
+}

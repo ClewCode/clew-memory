@@ -1,5 +1,6 @@
 import { detectClient, getDatabasePath, getWorkspaceRoot } from './client';
-import { runMigrations } from './db/client';
+import { runMigrations, sqlite } from './db/client';
+import { hybridSearchDebug } from './memory/search';
 import {
   addMemoryFeedback,
   addTimelineEvent,
@@ -31,6 +32,9 @@ export async function runCli(args: string[]) {
           2,
         ),
       );
+      return;
+    case 'doctor':
+      await runDoctor();
       return;
     case 'remember':
       await runRemember(rest);
@@ -89,10 +93,41 @@ async function runRecall(args: string[]) {
     .filter((arg) => !arg.startsWith('--'))
     .join(' ')
     .trim();
+  const debug = readFlag(args, 'debug-score') !== undefined;
 
   if (!query) {
-    console.error('Usage: clew-memory recall <query> [--limit 5]');
+    console.error('Usage: clew-memory recall <query> [--limit 5] [--debug-score]');
     process.exitCode = 1;
+    return;
+  }
+
+  if (debug) {
+    const memories = await hybridSearchDebug({
+      query,
+      limit: Number(readFlag(args, 'limit') ?? 5),
+    });
+
+    console.log(
+      JSON.stringify(
+        {
+          memories: memories.map((m) => ({
+            id: m.id,
+            content: m.content,
+            score: m.score,
+            score_vector: m.score_vector,
+            score_fts: m.score_fts,
+            score_importance: m.score_importance,
+            score_recency: m.score_recency,
+            score_access: m.score_access,
+            tags: m.tags,
+            agent: m.agent,
+            created_at: m.created_at,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
@@ -112,6 +147,91 @@ async function runRecall(args: string[]) {
           agent: memory.agent,
           created_at: memory.created_at,
         })),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function runDoctor() {
+  const checks: Record<string, unknown> = {};
+  let healthy = true;
+
+  try {
+    checks.databasePath = getDatabasePath();
+    checks.client = detectClient();
+    checks.workspaceRoot = getWorkspaceRoot();
+  } catch (error) {
+    checks.database = { error: String(error) };
+    healthy = false;
+  }
+
+  try {
+    const migrateRows = sqlite
+      .prepare('SELECT name, applied_at FROM __clew_memory_migrations ORDER BY name ASC')
+      .all() as Array<{ name: string; applied_at: number }>;
+    checks.migrations = migrateRows;
+  } catch (error) {
+    checks.migrations = { error: String(error) };
+    healthy = false;
+  }
+
+  try {
+    const ftsCheck = sqlite
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_fts%'")
+      .all() as Array<{ name: string }>;
+    checks.fts_tables = ftsCheck.map((row) => row.name);
+  } catch (error) {
+    checks.fts_tables = { error: String(error) };
+    healthy = false;
+  }
+
+  try {
+    const vecCheck = sqlite
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='__clew_memory_migrations'",
+      )
+      .all();
+    checks.sqlite_vec = {
+      loaded: Array.isArray(vecCheck),
+      ok: true,
+    };
+  } catch (error) {
+    checks.sqlite_vec = { error: String(error) };
+    healthy = false;
+  }
+
+  try {
+    const { embedText } = await import('./embeddings/embedder');
+    console.error('Probing embedding model...');
+    const embedding = await embedText('health check');
+    checks.embedding = {
+      model: 'Xenova/all-MiniLM-L6-v2',
+      dimensions: embedding.length,
+      ok: embedding.length === 384,
+    };
+  } catch (error) {
+    checks.embedding = { error: String(error) };
+    healthy = false;
+  }
+
+  try {
+    const row = sqlite.prepare('SELECT COUNT(*) AS count FROM memories').get() as { count: number };
+    checks.mcp = {
+      memories: row.count,
+      status: 'connected',
+    };
+  } catch (error) {
+    checks.mcp = { error: String(error) };
+    healthy = false;
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        healthy,
+        checks,
       },
       null,
       2,
@@ -369,8 +489,9 @@ function printHelp() {
 
 Commands:
   init                         Initialize the local database and print client context
+  doctor                       Show database, FTS, sqlite-vec, embedding, and MCP health
   remember <content>           Store a memory
-  recall <query>               Recall memories
+  recall <query>               Recall memories (--debug-score for score breakdown)
   trace                        Show memory trace entries
   feedback                     List memory feedback records
   feedback list                List memory feedback records
