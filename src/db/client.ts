@@ -335,7 +335,6 @@ export function runMigrations(database = sqlite) {
     {
       name: '0002_tree_path',
       sql: `
-        ALTER TABLE memories ADD COLUMN IF NOT EXISTS tree_path TEXT NOT NULL DEFAULT '[]';
         CREATE INDEX IF NOT EXISTS memories_tree_path_idx
           ON memories (tree_path);
       `,
@@ -359,12 +358,24 @@ export function runMigrations(database = sqlite) {
       .map((row) => (row as { name: string }).name),
   );
 
+  function hasColumn(table: string, column: string): boolean {
+    const cols = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    return cols.some((c) => c.name === column);
+  }
+
   for (const migration of migrations) {
     if (applied.has(migration.name)) {
       continue;
     }
 
     database.transaction(() => {
+      // Run pre-migration safe ALTERs before the main SQL
+      if (migration.name === '0002_tree_path') {
+        if (!hasColumn('memories', 'tree_path')) {
+          database.exec(`ALTER TABLE memories ADD COLUMN tree_path TEXT NOT NULL DEFAULT '[]'`);
+        }
+      }
+
       database.exec(migration.sql);
       database.prepare('INSERT INTO __clew_memory_migrations(name) VALUES (?)').run(migration.name);
     })();

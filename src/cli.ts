@@ -17,6 +17,7 @@ import {
   treeMv,
   treePrune,
 } from './memory/store';
+import { getLoopState, runImproveCycle, startLoop, stopLoop } from './self-improvement';
 
 export async function runCli(args: string[]) {
   const [command, ...rest] = args;
@@ -58,6 +59,9 @@ export async function runCli(args: string[]) {
     case 'supersede':
       await runSupersede(rest);
       return;
+    case 'improve':
+      await runImprove(rest);
+      return;
     case 'tree':
       await runTree(rest);
       return;
@@ -72,6 +76,37 @@ export async function runCli(args: string[]) {
       printHelp();
       process.exitCode = 1;
   }
+}
+
+async function runImprove(args: string[]) {
+  const watch = readFlag(args, 'watch') !== undefined;
+  const interval = Number(readFlag(args, 'interval')) || 30 * 60 * 1000;
+
+  if (watch) {
+    console.error(`Starting self-improvement loop (interval: ${interval}ms)...`);
+    startLoop(interval);
+    // Keep the process alive
+    await new Promise(() => {});
+    return;
+  }
+
+  const status = readFlag(args, 'status');
+  if (status !== undefined) {
+    const state = getLoopState();
+    console.log(JSON.stringify(state, null, 2));
+    return;
+  }
+
+  const stop = readFlag(args, 'stop');
+  if (stop !== undefined) {
+    stopLoop();
+    console.log(JSON.stringify({ status: 'stopped' }, null, 2));
+    return;
+  }
+
+  // Run one cycle
+  const result = await runImproveCycle();
+  console.log(JSON.stringify(result, null, 2));
 }
 
 async function runRemember(args: string[]) {
@@ -600,6 +635,10 @@ Commands:
   timeline add <title>         Append a timeline event summary
   timeline clear               Clear timeline events with --confirm true
   supersede <id> [replacement] Mark a memory as superseded without deleting it
+  improve                      Run one self-improvement cycle (bump, merge, prune, mine)
+  improve --watch              Start background auto-improvement loop
+  improve --status             Show loop status
+  improve --stop               Stop the loop
   tree                         Browse, stats, prune, or rename tree paths
   tree browse                  Show memory tree hierarchy
   tree stats                   Show tree branch counts
@@ -619,6 +658,8 @@ Options:
 Environment:
   CLEW_MEMORY_DB               Explicit database path, always wins
   CLEW_MEMORY_SCOPE=global     Use ~/.clew-memory/memory.db
+  CLEW_MEMORY_SELF_IMPROVE=1   Enable background self-improvement loop
+  CLEW_MEMORY_IMPROVE_INTERVAL Loop interval in ms (default: 1800000 = 30min)
   CLAUDE_PROJECT_DIR           Use Claude Code project memory and client detection → claudecode
   CLEW_PROJECT_DIR             Use ClewCode project memory and client detection → clewcode
   OPENCODE_PROJECT_DIR         OpenCode project memory and client detection → opencode

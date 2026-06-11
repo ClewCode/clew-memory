@@ -12,6 +12,7 @@ A standalone MCP Memory Layer for AI coding agents such as Claude Code, Clew, an
 - **Feedback** — user signals (accepted, rejected, corrected, preferred, etc.) that adjust importance and confidence
 - **Working memory** — session-scoped key-value store for transient state
 - **Reflection** — session reflection that produces handoffs, learned taste, decisions, and next actions
+- **Self-improvement** — autonomous background loop that bumps active memories, merges duplicates, prunes stale entries, and mines usage patterns
 
 All storage is local. By default, each project gets its own database at `PROJECT_ROOT/.clew/memory.db`. The global fallback `~/.clew-memory/memory.db` is only used when `CLEW_MEMORY_SCOPE=global` is set.
 
@@ -91,7 +92,24 @@ clew-memory trace                 # Show memory trace entries
 clew-memory timeline [recent|search|add|clear]
 clew-memory feedback [list|add|important|wrong]
 clew-memory supersede <id>        # Mark a memory as superseded
+clew-memory improve               # Run one self-improvement cycle (bump, merge, prune, mine)
+clew-memory improve --watch       # Start background auto-improvement loop
 ```
+
+### `clew-memory improve`
+
+Run one full self-improvement cycle: bump importance of active memories, merge duplicate content, prune decayed/low-confidence/superseded memories, and mine patterns from tags/agents/feedback.
+
+```bash
+clew-memory improve              # Run one cycle
+clew-memory improve --watch      # Background loop (default interval: 30min)
+clew-memory improve --status     # Show loop state
+clew-memory improve --stop       # Stop background loop
+```
+
+Enable auto-loop at startup with `CLEW_MEMORY_SELF_IMPROVE=1`. Configure interval via `CLEW_MEMORY_IMPROVE_INTERVAL` (ms).
+
+The cycle is also available as the MCP tool `clew_self_improve`.
 
 ### `clew-memory doctor`
 

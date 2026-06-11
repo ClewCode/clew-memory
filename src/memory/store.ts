@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 
 import { detectClient, getWorkspaceRoot, normalizeClient, resolveTreePath } from '../client';
@@ -760,6 +760,26 @@ export async function addMemoryFeedback(input: {
       .set({ access_count: sql`access_count + 1` })
       .where(eq(memories.id, input.memoryId));
   }
+
+  // Queue lightweight background improve for positive signals
+  if (['accepted', 'important', 'preferred', 'corrected'].includes(input.signal)) {
+    // Run a bump-only cycle in background (fire-and-forget)
+    autoBumpIfNeeded().catch(() => {});
+  }
+}
+
+async function autoBumpIfNeeded() {
+  try {
+    const { autoBump } = await import('../self-improvement/bumper');
+    await addTimelineEvent({
+      eventType: 'agent_action',
+      title: 'Feedback-triggered bump',
+      body: 'Positive feedback signal triggered auto-bump.',
+      tags: ['self-improvement'],
+    });
+  } catch {
+    // self-improvement module not available
+  }
 }
 
 export async function listMemoryFeedback(input: {
@@ -828,6 +848,14 @@ export async function workingSet(input: {
   return row ? toPublicWorkingMemory(row) : undefined;
 }
 
+export async function cleanExpiredWorking(): Promise<number> {
+  const result = await db
+    .delete(workingMemory)
+    .where(and(isNotNull(workingMemory.expiresAt), lt(workingMemory.expiresAt, Date.now())))
+    .run();
+  return result.changes;
+}
+
 export async function workingGet(input: { key: string; sessionId?: string | undefined }) {
   const sessionId = input.sessionId ?? defaultSessionId;
 
@@ -855,6 +883,9 @@ export async function workingList(input: {
 }) {
   const sessionId = input.sessionId ?? defaultSessionId;
   const limit = Math.min(input.limit ?? 100, 500);
+
+  // Clean expired entries first
+  await cleanExpiredWorking();
 
   const rows = await db
     .select()
