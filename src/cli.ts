@@ -4,6 +4,7 @@ import { hybridSearchDebug } from './memory/search';
 import {
   addMemoryFeedback,
   addTimelineEvent,
+  buildTree,
   clearTimeline,
   listMemoryFeedback,
   listMemoryTraces,
@@ -12,6 +13,9 @@ import {
   searchTimelineEvents,
   remember as storeMemory,
   supersedeMemory,
+  treeList,
+  treeMv,
+  treePrune,
 } from './memory/store';
 
 export async function runCli(args: string[]) {
@@ -54,6 +58,9 @@ export async function runCli(args: string[]) {
     case 'supersede':
       await runSupersede(rest);
       return;
+    case 'tree':
+      await runTree(rest);
+      return;
     case undefined:
     case 'help':
     case '--help':
@@ -83,6 +90,7 @@ async function runRemember(args: string[]) {
     tags: readTags(args),
     project: readFlag(args, 'project'),
     kind: readFlag(args, 'kind') ?? 'note',
+    name: readFlag(args, 'name'),
   });
 
   console.log(JSON.stringify({ id: memory.id, status: 'stored' }, null, 2));
@@ -101,11 +109,16 @@ async function runRecall(args: string[]) {
     return;
   }
 
+  const treePathRaw = readFlag(args, 'tree-path');
+  const treePath = treePathRaw ? treePathRaw.split(',') : undefined;
+  const searchOptions = {
+    query,
+    limit: Number(readFlag(args, 'limit') ?? 5),
+    ...(treePath ? { treePath } : {}),
+  };
+
   if (debug) {
-    const memories = await hybridSearchDebug({
-      query,
-      limit: Number(readFlag(args, 'limit') ?? 5),
-    });
+    const memories = await hybridSearchDebug(searchOptions);
 
     console.log(
       JSON.stringify(
@@ -131,10 +144,7 @@ async function runRecall(args: string[]) {
     return;
   }
 
-  const memories = await searchMemories({
-    query,
-    limit: Number(readFlag(args, 'limit') ?? 5),
-  });
+  const memories = await searchMemories(searchOptions);
 
   console.log(
     JSON.stringify(
@@ -429,6 +439,92 @@ async function runSupersede(args: string[]) {
   );
 }
 
+async function runTree(args: string[]) {
+  const [subcommand, ...rest] = args;
+
+  switch (subcommand) {
+    case undefined:
+    case 'browse':
+    case 'ls':
+      await runTreeBrowse(rest);
+      return;
+    case 'stats':
+      await runTreeStats(rest);
+      return;
+    case 'prune':
+      await runTreePrune(rest);
+      return;
+    case 'mv':
+      await runTreeMv(rest);
+      return;
+    default:
+      console.error('Usage: clew-memory tree [browse|ls|stats|prune|mv]');
+      process.exitCode = 1;
+  }
+}
+
+async function runTreeBrowse(_args: string[]) {
+  const entries = await treeList();
+  const tree = buildTree(entries);
+  console.log(JSON.stringify({ tree }, null, 2));
+}
+
+async function runTreeStats(_args: string[]) {
+  const entries = await treeList();
+  const totalMemories = entries.reduce((sum, e) => sum + e.count, 0);
+  const tree = buildTree(entries);
+  console.log(
+    JSON.stringify(
+      {
+        branches: entries.length,
+        total_memories: totalMemories,
+        tree,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function runTreePrune(args: string[]) {
+  const prefixRaw = readFlag(args, 'prefix');
+  const older = readFlag(args, 'older');
+
+  if (!prefixRaw || !older) {
+    console.error('Usage: clew-memory tree prune --prefix a,b --older 30d');
+    process.exitCode = 1;
+    return;
+  }
+
+  const prefix = prefixRaw.split(',').map((s) => s.trim()).filter(Boolean);
+  const match = older.match(/^(\d+)([dhms])$/);
+  if (!match) {
+    console.error('--older must be like 30d, 12h, 60m, 30s');
+    process.exitCode = 1;
+    return;
+  }
+
+  const multipliers: Record<string, number> = { d: 86400000, h: 3600000, m: 60000, s: 1000 };
+  const olderThanMs = Number(match[1]) * (multipliers[match[2]!] ?? 86400000);
+
+  const deleted = await treePrune({ prefix, olderThanMs });
+  console.log(JSON.stringify({ deleted, prefix, older_cutoff_ms: olderThanMs }, null, 2));
+}
+
+async function runTreeMv(args: string[]) {
+  const oldSegment = args.find((arg) => !arg.startsWith('--'));
+  const newSegment = args.find((arg, i) => !arg.startsWith('--') && i !== args.findIndex((a) => !a.startsWith('--')));
+
+  if (!oldSegment || !newSegment) {
+    console.error('Usage: clew-memory tree mv <old-segment> <new-segment>');
+    process.exitCode = 1;
+    return;
+  }
+
+  const changed = await treeMv(oldSegment, newSegment);
+  console.log(JSON.stringify({ changed, from: oldSegment, to: newSegment }, null, 2));
+}
+
 function asRecord(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -490,8 +586,8 @@ function printHelp() {
 Commands:
   init                         Initialize the local database and print client context
   doctor                       Show database, FTS, sqlite-vec, embedding, and MCP health
-  remember <content>           Store a memory
-  recall <query>               Recall memories (--debug-score for score breakdown)
+  remember <content>           Store a memory (--name for tree root name)
+  recall <query>               Recall memories (--debug-score for breakdown, --tree-path a,b to filter)
   trace                        Show memory trace entries
   feedback                     List memory feedback records
   feedback list                List memory feedback records
@@ -504,17 +600,29 @@ Commands:
   timeline add <title>         Append a timeline event summary
   timeline clear               Clear timeline events with --confirm true
   supersede <id> [replacement] Mark a memory as superseded without deleting it
+  tree                         Browse, stats, prune, or rename tree paths
+  tree browse                  Show memory tree hierarchy
+  tree stats                   Show tree branch counts
+  tree prune                   Remove old memories from a branch (--prefix a,b --older 30d)
+  tree mv                      Rename a tree path segment (tree mv old new)
 
 Options:
   --tag, --tags                Add memory tags
   --kind                       Memory kind, default: note
   --project                    Project name
+  --name                       Memory tree root name (for openclaw/hermes-agent)
+  --tree-path                  Tree path segments, comma-separated (e.g. "claudecode")
+  --cascade                    Also search parent and child tree paths
   --limit                      Result limit
   --reason                     Supersede reason
 
 Environment:
   CLEW_MEMORY_DB               Explicit database path, always wins
   CLEW_MEMORY_SCOPE=global     Use ~/.clew-memory/memory.db
-  CLAUDE_PROJECT_DIR           Use Claude Code project memory and client detection
-  CLEW_PROJECT_DIR             Use ClewCode project memory and client detection`);
+  CLAUDE_PROJECT_DIR           Use Claude Code project memory and client detection → claudecode
+  CLEW_PROJECT_DIR             Use ClewCode project memory and client detection → clewcode
+  OPENCODE_PROJECT_DIR         OpenCode project memory and client detection → opencode
+  CODEX_PROJECT_DIR            Codex project memory and client detection → codex
+  OPENCLAW_PROJECT_DIR         OpenClaw project memory and client detection → openclaw
+  HERMES_AGENT_PROJECT_DIR     Hermes Agent project memory and client detection → hermes-agent`);
 }

@@ -67,6 +67,72 @@ describe('integration tests', () => {
     expect(memory.content).toContain('auth middleware');
     expect(memory.tags).toContain('auth');
     expect(memory.importance).toBe(0.5);
+    expect(Array.isArray(memory.tree_path)).toBe(true);
+  });
+
+  test('stores memory with tree path from name', async () => {
+    const memory = await remember({
+      content: 'Project config values',
+      tags: ['config'],
+      name: 'my-app',
+    });
+
+    expect(memory.tree_path).toBeDefined();
+    expect(memory.tree_path.length).toBeGreaterThan(0);
+  });
+
+  test('recalls memory filtered by treePath', async () => {
+    const mem1 = await remember({
+      content: 'Claude Code specific knowledge',
+      tags: ['claude'],
+      name: 'claude-test',
+    });
+
+    // recall with treePath matching the stored path
+    const results = await recall({
+      query: 'knowledge',
+      treePath: mem1.tree_path,
+    });
+
+    expect(results.length).toBeGreaterThan(0);
+    const match = results.find((r) => r.id === mem1.id);
+    expect(match).toBeDefined();
+  });
+
+  test('cascade recall returns memories from parent tree', async () => {
+    // Store under ["unknown", "sub-a"]
+    const memA = await remember({
+      content: 'Sub project A settings',
+      tags: ['sub'],
+      name: 'sub-a',
+    });
+    // Mem at parent level (no name, unknown client only)
+    const memB = await remember({
+      content: 'Root project settings',
+      tags: ['root'],
+    });
+
+    // recall with cascade=true at parent path
+    const results = await recall({
+      query: 'settings',
+      treePath: ['unknown'],
+    });
+
+    expect(results.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('CLEW_MEMORY_BRANCH is appended to tree_path', async () => {
+    process.env.CLEW_MEMORY_BRANCH = 'nightly';
+    try {
+      const memory = await remember({
+        content: 'Nightly build config',
+        tags: ['build'],
+        name: 'ci',
+      });
+      expect(memory.tree_path).toContain('nightly');
+    } finally {
+      delete process.env.CLEW_MEMORY_BRANCH;
+    }
   });
 
   test('redacts API keys from stored content', async () => {

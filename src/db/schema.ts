@@ -24,6 +24,7 @@ export const memories = sqliteTable('memories', {
   access_count: integer('access_count').notNull().default(0),
   last_accessed_at: integer('last_accessed_at', { mode: 'number' }),
   decay_rate: real('decay_rate').notNull().default(0.01),
+  tree_path: text('tree_path', { mode: 'json' }).$type<string[]>().notNull().default([]),
 });
 
 export const sessions = sqliteTable('sessions', {

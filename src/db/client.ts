@@ -332,6 +332,14 @@ export function runMigrations(database = sqlite) {
           ON working_memory (expires_at);
       `,
     },
+    {
+      name: '0002_tree_path',
+      sql: `
+        ALTER TABLE memories ADD COLUMN IF NOT EXISTS tree_path TEXT NOT NULL DEFAULT '[]';
+        CREATE INDEX IF NOT EXISTS memories_tree_path_idx
+          ON memories (tree_path);
+      `,
+    },
   ];
 
   database.exec('PRAGMA foreign_keys = ON');

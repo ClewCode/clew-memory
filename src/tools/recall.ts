@@ -10,6 +10,8 @@ const inputSchema = z.object({
   agent: z.string().optional(),
   project: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  treePath: z.array(z.string()).optional(),
+  cascade: z.boolean().optional(),
 });
 
 export function registerRecallTool(server: McpServer) {

@@ -13,6 +13,7 @@ const inputSchema = z.object({
   client: z.string().optional(),
   workspaceRoot: z.string().optional(),
   kind: z.string().optional(),
+  name: z.string().optional(),
 });
 
 export function registerRememberTool(server: McpServer) {

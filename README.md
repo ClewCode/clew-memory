@@ -15,11 +15,38 @@ A standalone MCP Memory Layer for AI coding agents such as Claude Code, Clew, an
 
 All storage is local. By default, each project gets its own database at `PROJECT_ROOT/.clew/memory.db`. The global fallback `~/.clew-memory/memory.db` is only used when `CLEW_MEMORY_SCOPE=global` is set.
 
+## Memory tree paths
+
+Every memory is automatically assigned a **tree path** — an array of segments that organizes memories into a hierarchy. This lets you filter recalls by branch.
+
+The tree path depends on the client:
+
+| Client | Tree path |
+|---|---|
+| `opencode`, `claudecode`, `clewcode`, `codex` | `["<exact-client-name>"]` |
+| `openclaw`, `hermes-agent` | `["<name>"]` (user-provided name is tree root) |
+| others | `["<client>", "<project>"]` |
+
+Use `--name` flag when remembering to set the tree root name for `openclaw`/`hermes-agent`, or pass `name` via the MCP tool. Filter recalls by tree path with `--tree-path a,b` (CLI) or `treePath: ["claudecode"]` (MCP).
+
 Override the database path with:
 
 ```bash
 CLEW_MEMORY_DB=/path/to/memory.db
 ```
+
+### Client detection
+
+`clew-memory` detects the calling agent from environment variables:
+
+| Variable | Detected client | Tree path behavior |
+|---|---|---|
+| `CLAUDE_PROJECT_DIR` | `claudecode` | Exact CLI name → single segment |
+| `CLEW_PROJECT_DIR` | `clewcode` | Exact CLI name → single segment |
+| `OPENCODE_PROJECT_DIR` | `opencode` | Exact CLI name → single segment |
+| `CODEX_PROJECT_DIR` | `codex` | Exact CLI name → single segment |
+| `OPENCLAW_PROJECT_DIR` | `openclaw` | User-provided name → tree root |
+| `HERMES_AGENT_PROJECT_DIR` | `hermes-agent` | User-provided name → tree root |
 
 ## Install
 

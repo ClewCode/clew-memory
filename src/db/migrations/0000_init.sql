@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS memories (
   importance REAL NOT NULL DEFAULT 0.5,
   access_count INTEGER NOT NULL DEFAULT 0,
   last_accessed_at INTEGER,
-  decay_rate REAL NOT NULL DEFAULT 0.01
+  decay_rate REAL NOT NULL DEFAULT 0.01,
+  tree_path TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS sessions (

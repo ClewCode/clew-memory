@@ -128,6 +128,21 @@ describe('migration compatibility', () => {
     }>;
 
     expect(after).toHaveLength(2);
+
+    applyInlineMigration(
+      database,
+      '0002_tree_path',
+      `
+        ALTER TABLE memories ADD COLUMN IF NOT EXISTS tree_path TEXT NOT NULL DEFAULT '[]';
+        CREATE INDEX IF NOT EXISTS memories_tree_path_idx ON memories (tree_path);
+      `,
+    );
+
+    const after2 = database.prepare('SELECT name FROM __clew_memory_migrations').all() as Array<{
+      name: string;
+    }>;
+
+    expect(after2).toHaveLength(3);
   });
 
   test('new columns exist after migration', () => {
@@ -141,6 +156,7 @@ describe('migration compatibility', () => {
       'access_count',
       'decay_rate',
       'superseded_by',
+      'tree_path',
     ]) {
       expect(names).toContain(col);
     }

@@ -1,7 +1,7 @@
-import { and, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 
-import { detectClient, getWorkspaceRoot } from '../client';
+import { detectClient, getWorkspaceRoot, normalizeClient, resolveTreePath } from '../client';
 import { db } from '../db/client';
 import {
   type Memory,
@@ -28,6 +28,7 @@ export type RememberInput = {
   kind?: string | undefined;
   confidence?: number | undefined;
   decayAt?: number | undefined;
+  name?: string | undefined;
 };
 
 export type RecallInput = {
@@ -36,6 +37,9 @@ export type RecallInput = {
   agent?: string | undefined;
   project?: string | undefined;
   tags?: string[] | undefined;
+  name?: string | undefined;
+  treePath?: string[] | undefined;
+  cascade?: boolean | undefined;
 };
 
 export type UpdateInput = {
@@ -51,6 +55,7 @@ export type UpdateInput = {
   kind?: string | undefined;
   confidence?: number | undefined;
   decayAt?: number | null | undefined;
+  name?: string | undefined;
 };
 
 export type SupersedeInput = {
@@ -82,6 +87,7 @@ export type PublicMemory = {
   access_count: number;
   last_accessed_at?: number | null;
   decay_rate: number;
+  tree_path: string[];
 };
 
 export type RecallResult = {
@@ -166,9 +172,14 @@ export async function remember(input: RememberInput) {
   const summary = summarizeContent(safeContent);
   const tags = normalizeTags(input.tags);
   const id = ulid();
-  const client = input.client ?? detectClient();
+  const client = normalizeClient(input.client ?? detectClient());
   const workspaceRoot = input.workspaceRoot ?? getWorkspaceRoot();
   const kind = input.kind ?? 'note';
+  const treePath = resolveTreePath({
+    name: input.name,
+    project: input.project,
+    client,
+  });
 
   const [memory] = await db
     .insert(memories)
@@ -192,6 +203,7 @@ export async function remember(input: RememberInput) {
       importance: 0.5,
       access_count: 0,
       decay_rate: 0.01,
+      tree_path: treePath,
     })
     .returning();
 
@@ -396,6 +408,13 @@ export async function stats() {
     .groupBy(memories.project);
   const traceRows = await db.select({ count: count() }).from(memoryTrace).get();
 
+  const treeRows = await db
+    .select({ path: memories.tree_path, count: count() })
+    .from(memories)
+    .groupBy(memories.tree_path)
+    .orderBy(memories.tree_path)
+    .all();
+
   return {
     total: totalRow?.count ?? 0,
     by_agent: Object.fromEntries(agentRows.map((row) => [row.agent, row.count])),
@@ -404,6 +423,7 @@ export async function stats() {
     by_project: Object.fromEntries(projectRows.map((row) => [row.project ?? '(none)', row.count])),
     avg_confidence: Number(avgRow?.avg ?? 0),
     traces: traceRows?.count ?? 0,
+    tree: treeRows as Array<{ path: string[]; count: number }>,
   };
 }
 
@@ -429,6 +449,105 @@ export async function listMemoryTraces(limit = 50, offset = 0) {
     .offset(offset);
 
   return rows.map(toPublicMemoryTrace);
+}
+
+export type TreeEntry = {
+  path: string[];
+  count: number;
+};
+
+export type TreeNodeType = {
+  name: string;
+  count: number;
+  children: TreeNodeType[];
+};
+
+export async function treeList(): Promise<TreeEntry[]> {
+  const rows = await db
+    .select({ path: memories.tree_path, count: count() })
+    .from(memories)
+    .groupBy(memories.tree_path)
+    .orderBy(memories.tree_path)
+    .all();
+
+  return rows as unknown as TreeEntry[];
+}
+
+type _TreeNode = { count: number; children: Record<string, _TreeNode> };
+
+export function buildTree(entries: TreeEntry[]): Record<string, unknown>[] {
+  const root: Record<string, _TreeNode> = {};
+
+  for (const entry of entries) {
+    let current = root;
+    for (const segment of entry.path) {
+      if (!current[segment]) {
+        current[segment] = { count: 0, children: {} };
+      }
+      current[segment]!.count += entry.count;
+      current = current[segment]!.children;
+    }
+  }
+
+  function toOutput(obj: Record<string, _TreeNode>): Record<string, unknown>[] {
+    return Object.entries(obj)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, node]) => {
+        const item: Record<string, unknown> = { name, count: node.count };
+        const childList = toOutput(node.children);
+        if (childList.length > 0) {
+          item.children = childList;
+        }
+        return item;
+      });
+  }
+
+  return toOutput(root);
+}
+
+export async function treePrune(options: { prefix: string[]; olderThanMs: number }): Promise<number> {
+  const prefixJson = JSON.stringify(options.prefix);
+  const cutoff = Date.now() - options.olderThanMs;
+
+  // Match exact path or any child path
+  const childPattern = `${prefixJson.slice(0, -1)},"%`;
+
+  const result = await db
+    .delete(memories)
+    .where(
+      and(
+        or(
+          eq(memories.tree_path, options.prefix),
+          sql`memories.tree_path LIKE ${childPattern}`,
+        ),
+        sql`${memories.created_at} < ${cutoff}`,
+      ),
+    )
+    .run();
+
+  return result.changes;
+}
+
+export async function treeMv(oldSegment: string, newSegment: string): Promise<number> {
+  const rows = await db
+    .select({ id: memories.id, tree_path: memories.tree_path })
+    .from(memories)
+    .where(sql`memories.tree_path LIKE ${`%"${oldSegment}"%`}`)
+    .all() as Array<{ id: string; tree_path: string[] }>;
+
+  let changed = 0;
+  for (const row of rows) {
+    const newPath = row.tree_path.map((s) => (s === oldSegment ? newSegment : s));
+    if (JSON.stringify(newPath) !== JSON.stringify(row.tree_path)) {
+      await db
+        .update(memories)
+        .set({ tree_path: newPath })
+        .where(eq(memories.id, row.id));
+      changed++;
+    }
+  }
+
+  return changed;
 }
 
 export async function addTimelineEvent(input: AddTimelineEventInput) {
@@ -978,6 +1097,7 @@ export function toPublicMemory(memory: Memory): PublicMemory {
     access_count: memory.access_count,
     last_accessed_at: memory.last_accessed_at,
     decay_rate: memory.decay_rate,
+  tree_path: Array.isArray(memory.tree_path) ? memory.tree_path : [],
   };
 }
 
